@@ -49,6 +49,38 @@ Automatically detects and parses multiple data structures:
 
 ---
 
+## 🚀 Need More Features? Try Msgify Pro
+
+**[Msgify](https://msgify-pro.vercel.app/)** is the full-featured, production-ready version of our platform with cloud storage, database, and advanced features.
+
+### Msgify Pro Features
+- **Cloud Storage** – Cloudflare R2 integration for high-performance image delivery
+- **Database** – PostgreSQL (Neon) + Prisma ORM for persistent data storage
+- **Authentication** – Secure JWT-based login and signup system
+- **Smart Tagging** – Create, edit, and merge tags with automatic post migration
+- **Safety Features** – Soft delete with recycle bin and restore functionality
+- **Bulk Operations** – Quick cleanup and batch processing capabilities
+- **Dashboard** – Beautiful grid-based interface with search, filtering, and pagination
+
+### Comparison
+
+| Feature | Msgify Lite | Msgify Pro |
+|---------|-------------|-----------|
+| **Local-Only Processing** | ✅ | ✅ |
+| **Offline Functionality** | ✅ | ✅ |
+| **Cloud Storage** | ❌ | ✅ |
+| **Database** | ❌ | ✅ |
+| **User Authentication** | ❌ | ✅ |
+| **Tag Management** | ❌ | ✅ |
+| **Recycle Bin** | ❌ | ✅ |
+| **Self-Hosted** | ✅ | ✅ |
+
+### Quick Links
+- 🔗 **Live Demo:** [🌐 Website](https://msgify-pro.vercel.app/)
+- 💻 **GitHub Repository:** [📂 View Code](https://github.com/miangee21/Msgify)
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites
