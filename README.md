@@ -1,6 +1,6 @@
-# 📱 Msgify Lite – Offline Archive Viewer
-
 <div align="center">
+
+# 📱 Msgify Lite – Offline Archive Viewer
 
 ![Project Status](https://img.shields.io/badge/Status-Stable-success?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
