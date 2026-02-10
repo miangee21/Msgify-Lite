@@ -15,6 +15,18 @@ export default function LocalPaginationControls({
   onPageChange: (page: number) => void;
 }) {
 
+  // ✅ New Wrapper Function to handle Scroll + Page Change
+  const handlePageChange = (page: number) => {
+    // 1. Data update karo
+    onPageChange(page);
+    
+    // 2. Smoothly oper le jao
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  };
+
   const renderPageNumbers = () => {
     const pages = [];
     const showEllipsis = totalPages > 5;
@@ -41,7 +53,8 @@ export default function LocalPaginationControls({
           <Button
             variant={currentPage === p ? "default" : "outline"}
             size="sm"
-            onClick={() => onPageChange(p as number)}
+            // 👇 Updated to use handlePageChange
+            onClick={() => handlePageChange(p as number)}
             className={`w-9 h-9 rounded-xl transition-all ${
               // Local Viewer Theme: Emerald (Green) instead of Indigo
               currentPage === p ? "bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-200 dark:shadow-none" : ""
@@ -65,7 +78,8 @@ export default function LocalPaginationControls({
           variant="outline"
           size="icon"
           disabled={currentPage <= 1}
-          onClick={() => onPageChange(currentPage - 1)}
+          // 👇 Updated to use handlePageChange
+          onClick={() => handlePageChange(currentPage - 1)}
           className="rounded-xl h-9 w-9"
         >
           <ChevronLeft size={18} />
@@ -79,7 +93,8 @@ export default function LocalPaginationControls({
           variant="outline"
           size="icon"
           disabled={currentPage >= totalPages}
-          onClick={() => onPageChange(currentPage + 1)}
+          // 👇 Updated to use handlePageChange
+          onClick={() => handlePageChange(currentPage + 1)}
           className="rounded-xl h-9 w-9"
         >
           <ChevronRight size={18} />
