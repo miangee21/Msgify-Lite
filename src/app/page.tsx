@@ -6,15 +6,27 @@ import { Button } from "@/components/ui/button";
 import { LocalPostCard } from "@/components/local-post-card";
 import LocalPaginationControls from "@/components/local-pagination";
 import { toast } from "sonner";
-import { LiteNavbar } from "@/components/lite-navbar"; 
+import { LiteNavbar } from "@/components/lite-navbar";
+import SplashScreen from "@/components/SplashScreen"; // ✅ Splash screen import
+
+// --- Tauri Imports ---
+import { open } from '@tauri-apps/plugin-dialog';
+import { readDir, readFile } from '@tauri-apps/plugin-fs';
 
 export default function Home() {
-  // --- Global State for Search (Lifted for Navbar) ---
+  // ✅ ALL HOOKS AT TOP - NEVER CONDITIONAL
+  
+  // Splash screen state
+  const [showSplash, setShowSplash] = useState(true);
+  
+  // Global State for Search (Lifted for Navbar)
   const [searchQuery, setSearchQuery] = useState("");
 
-  // --- Viewer State ---
+  // Viewer State
   const [allPosts, setAllPosts] = useState<any[]>([]); 
-  const [imagesMap, setImagesMap] = useState<Map<string, File>>(new Map()); 
+  // 🚀 OPTIMIZATION: Store file PATHS instead of File objects
+  const [imagesPathMap, setImagesPathMap] = useState<Map<string, string>>(new Map()); 
+  const [imagesCache, setImagesCache] = useState<Map<string, File>>(new Map()); // Cache for loaded images
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadingText, setLoadingText] = useState("");
   
@@ -25,53 +37,140 @@ export default function Home() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const PER_PAGE = 12;
-
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Folder Select Handler ---
-  const handleFolderSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  // 🚀 NEW: Lazy load image when needed
+  const loadImage = async (filename: string): Promise<File | null> => {
+    // Check cache first
+    if (imagesCache.has(filename)) {
+      return imagesCache.get(filename)!;
+    }
 
-    setLoadingText("Reading files...");
-    
-    const newImagesMap = new Map<string, File>();
-    let resultJsonFile: File | null = null;
-    let postJsonFile: File | null = null;
-    let buttonJsonFile: File | null = null;
+    // Get path from map
+    const imagePath = imagesPathMap.get(filename);
+    if (!imagePath) return null;
 
-    Array.from(files).forEach((file) => {
-      const fileName = file.name; 
+    try {
+      // Read file on-demand
+      const imageData = await readFile(imagePath);
+      const ext = filename.toLowerCase().split('.').pop();
+      const mimeType = ext === 'png' ? 'image/png' :
+                       ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+                       ext === 'gif' ? 'image/gif' :
+                       ext === 'webp' ? 'image/webp' : 'image/jpeg';
       
-      if (fileName === "result.json") {
-        resultJsonFile = file;
-      }
-      else if (fileName.toLowerCase() === "post.json" || fileName.toLowerCase() === "posts.json") {
-        postJsonFile = file;
-      }
-      else if (fileName.toLowerCase() === "button.json" || fileName.toLowerCase() === "buttons.json") {
-        buttonJsonFile = file;
-      }
-      else if (file.type.startsWith("image/")) {
-        newImagesMap.set(fileName, file); 
-      }
-    });
-
-    setImagesMap(newImagesMap);
-
-    if (postJsonFile && buttonJsonFile) {
-        setLoadingText("Loading Neon DB Export...");
-        await parseNeonDBExport(postJsonFile, buttonJsonFile);
+      const file = new File([imageData], filename, { type: mimeType });
+      
+      // Cache it
+      setImagesCache(prev => new Map(prev).set(filename, file));
+      
+      return file;
+    } catch (err) {
+      console.error("Failed to load image:", filename, err);
+      return null;
     }
-    else if (resultJsonFile) {
-        setLoadingText("Parsing Telegram JSON...");
-        parseTelegramExport(resultJsonFile);
+  };
+
+  // --- Helper: Recursive Directory Reader (OPTIMIZED) ---
+  const processDirectoryRecursively = async (
+    dirPath: string, 
+    newImagesPathMap: Map<string, string>, 
+    jsonFiles: { result: File | null, post: File | null, button: File | null },
+    stats: { images: number, jsons: number }
+  ) => {
+    try {
+        const entries = await readDir(dirPath);
+
+        for (const entry of entries) {
+            const fileName = entry.name;
+            const fullPath = `${dirPath}/${fileName}`;
+            
+            if (entry.isDirectory) {
+                // Recursively process subdirectories
+                await processDirectoryRecursively(fullPath, newImagesPathMap, jsonFiles, stats);
+            } else {
+                const lowerName = fileName.toLowerCase();
+                const isJson = lowerName.endsWith('.json');
+                const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(lowerName);
+
+                if (isJson) {
+                    // Read JSON files immediately (they're small)
+                    const fileData = await readFile(fullPath);
+                    const file = new File([fileData], fileName, { type: 'application/json' });
+                    
+                    if (lowerName === "result.json") {
+                        jsonFiles.result = file;
+                    }
+                    else if (lowerName === "post.json" || lowerName === "posts.json") {
+                        jsonFiles.post = file;
+                    }
+                    else if (lowerName === "button.json" || lowerName === "buttons.json") {
+                        jsonFiles.button = file;
+                    }
+                    stats.jsons++;
+                }
+                else if (isImage) {
+                    // 🚀 OPTIMIZATION: Store PATH only, don't read the image yet
+                    newImagesPathMap.set(fileName, fullPath);
+                    stats.images++;
+                    
+                    // Update UI every 100 images
+                    if (stats.images % 100 === 0) {
+                        setLoadingText(`Found ${stats.images} images...`);
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Error reading directory:", dirPath, err);
     }
-    else {
-        toast.error("Required files not found!", {
-            description: "Need 'result.json' OR ('Post.json' + 'Button.json')"
-        });
-        setLoadingText("");
+  };
+
+  // --- Tauri Folder Select Handler ---
+  const handleTauriSelect = async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Data Folder"
+      });
+
+      if (!selected) return;
+
+      setLoadingText("Scanning folder...");
+      const dirPath = selected as string;
+      
+      const newImagesPathMap = new Map<string, string>();
+      let jsonFiles = { result: null as File | null, post: null as File | null, button: null as File | null };
+      const stats = { images: 0, jsons: 0 };
+
+      // 🚀 Fast scan - just catalog files, don't read images yet
+      await processDirectoryRecursively(dirPath, newImagesPathMap, jsonFiles, stats);
+
+      console.log(`✅ Cataloged ${stats.images} images, ${stats.jsons} JSON files`);
+      setImagesPathMap(newImagesPathMap);
+      setImagesCache(new Map()); // Clear cache
+
+      if (jsonFiles.post && jsonFiles.button) {
+          setLoadingText("Loading Neon DB Export...");
+          await parseNeonDBExport(jsonFiles.post, jsonFiles.button);
+      }
+      else if (jsonFiles.result) {
+          setLoadingText("Parsing Telegram JSON...");
+          parseTelegramExport(jsonFiles.result);
+      }
+      else {
+          toast.error("Required files not found!", {
+              description: "Need 'result.json' OR ('Post.json' + 'Button.json')"
+          });
+          setLoadingText("");
+      }
+
+    } catch (err) {
+      console.error("Tauri File Error:", err);
+      toast.error("Failed to read folder via Tauri.");
+      setLoadingText("");
     }
   };
 
@@ -179,7 +278,7 @@ export default function Home() {
       setAvailableTags(tags);
       setIsLoaded(true);
       setLoadingText("");
-      toast.success(`Loaded ${posts.length} posts locally!`);
+      toast.success(`Loaded ${posts.length} posts instantly!`);
   };
 
   const getCaptionFromEntity = (textObj: any) => {
@@ -192,17 +291,18 @@ export default function Home() {
 
   const handleClear = () => {
     setAllPosts([]);
-    setImagesMap(new Map());
+    setImagesPathMap(new Map());
+    setImagesCache(new Map());
     setAvailableTags(new Map());
     setIsLoaded(false);
     setCurrentPage(1);
     setActiveTag("All");
-    setSearchQuery(""); // Clear search state
+    setSearchQuery(""); 
     if (fileInputRef.current) fileInputRef.current.value = ""; 
     toast.info("Local data cleared.");
   };
 
-  // --- Filtering Logic (Using State) ---
+  // --- Filtering Logic ---
   const filteredPosts = useMemo(() => {
     let result = allPosts;
 
@@ -231,15 +331,20 @@ export default function Home() {
     currentPage * PER_PAGE
   );
 
+  // ✅ CONDITIONAL RENDER AT END (AFTER ALL HOOKS)
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
+
   return (
     <div className="min-h-screen pb-15 transition-colors">
       
-      {/* 1. ✅ Navbar (Controls Search) */}
+      {/* 1. Navbar */}
       <LiteNavbar searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
       
       <div className="container mx-auto px-4 py-8">
         
-        {/* 2. Sub-Header (Actions & Stats) */}
+        {/* 2. Sub-Header */}
         <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             
             {/* Left: Stats & Tags */}
@@ -304,10 +409,10 @@ export default function Home() {
                 ) : (
                     <Button 
                         className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-200 dark:shadow-none"
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={handleTauriSelect} 
                         disabled={!!loadingText}
                     >
-                         {loadingText ? "Loading..." : <><FolderOpen size={16} className="mr-2" /> Select Folder</>}
+                         {loadingText || <><FolderOpen size={16} className="mr-2" /> Select Folder</>}
                     </Button>
                 )}
                 <input
@@ -318,7 +423,7 @@ export default function Home() {
                     webkitdirectory=""
                     directory=""
                     multiple
-                    onChange={handleFolderSelect}
+                    onChange={() => {}}
                 />
             </div>
         </div>
@@ -343,13 +448,17 @@ export default function Home() {
                     <>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
                             {displayPosts.map((post) => {
-                                let imageFile = null;
-                                if (post.photo) {
-                                    const parts = post.photo.split("/");
-                                    const filename = parts[parts.length - 1];
-                                    imageFile = imagesMap.get(filename) || imagesMap.get(post.photo) || null;
-                                }
-                                return <LocalPostCard key={post.id} post={post} imageFile={imageFile} />;
+                                const filename = post.photo ? post.photo.split("/").pop() || post.photo : null;
+                                
+                                return (
+                                    <LocalPostCard 
+                                        key={post.id} 
+                                        post={post} 
+                                        imageFile={null}
+                                        imagePath={filename}
+                                        loadImage={loadImage}
+                                    />
+                                );
                             })}
                         </div>
                         <LocalPaginationControls
