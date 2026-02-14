@@ -28,4 +28,3 @@ Remove-Item $msiPath
 
 Write-Host "✅ Msgify Lite installed successfully!" -ForegroundColor Green
 Write-Host "Find it in Start Menu: Msgify" -ForegroundColor White
-```
